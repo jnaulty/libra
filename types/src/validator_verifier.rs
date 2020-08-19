@@ -31,6 +31,15 @@ pub enum VerifyError {
         quorum_voting_power: u64,
     },
     #[error(
+        "The voting power ({}) is more than total voting power ({})",
+        voting_power,
+        total_voting_power
+    )]
+    TooMuchVotingPower {
+        voting_power: u64,
+        total_voting_power: u64,
+    },
+    #[error(
         "The number of signatures ({}) is greater than total number of authors ({})",
         num_of_signatures,
         num_of_authors
@@ -228,6 +237,13 @@ impl ValidatorVerifier {
                 quorum_voting_power: self.quorum_voting_power,
             });
         }
+
+        if aggregated_voting_power > self.total_voting_power {
+            return Err(VerifyError::TooMuchVotingPower {
+                voting_power: aggregated_voting_power,
+                total_voting_power: self.total_voting_power
+            });
+        }
         Ok(())
     }
 
@@ -375,15 +391,37 @@ mod tests {
             }
         );
 
+        // create a struct to sign with validator authors
         let dummy_struct = TestLibraCrypto("Hello, World".to_string());
+        // for each validator in the list of validator signers
+        // insert each validator into a map of validator.author, validator.signatures
         for validator in validator_signers.iter() {
             author_to_signature_map.insert(validator.author(), validator.sign(&dummy_struct));
         }
 
+        // asserts aggregated votes meets quorum
         assert_eq!(
             validator_verifier.check_voting_power(author_to_signature_map.keys()),
             Ok(())
         );
+
+
+        let (validator_signers_spoof, validator_verifier_spoof) = random_validator_verifier(2, None, false);
+        for validator in validator_signers_spoof.iter() {
+            author_to_signature_map.insert(validator.author(), validator.sign(&dummy_struct));
+        };
+
+        // assert error is thrown when aggregated votes is than total votes
+        assert_eq!(
+            validator_verifier
+                .check_voting_power(author_to_signature_map.keys())
+                .unwrap_err(),
+            VerifyError::TooMuchVotingPower {
+                voting_power: 3,
+                total_voting_power: 2,
+            }
+        );
+
     }
 
     #[test]
